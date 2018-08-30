@@ -1,0 +1,183 @@
+<?php
+namespace Ninja;
+
+class DatabaseTable
+{
+    private $pdo;
+    private $table;
+    private $primaryKey;
+    private $className;
+    private $constructorArgs;
+
+    public function __construct(\PDO $pdo,string $table,string $primaryKey= 'id', string $className = '\stdClass', array $constructorArgs = [])
+    {
+        $this->pdo = $pdo;
+        $this->table = $table;
+        $this->primaryKey = $primaryKey;
+        $this->className = $className;
+        $this->constructorArgs = $constructorArgs;
+    }
+
+    function query($sql, $parameters= [])
+    {
+        $query= $this->pdo->prepare($sql);
+        $query->execute($parameters);
+        return $query;
+    }
+
+    function total()
+    {
+        $query = $this->query("SELECT COUNT(*) FROM $this->table");
+        $row = $query->fetch();
+        return $row[0];
+    }
+
+    function findById($value)
+    {
+        $query = "SELECT * FROM $this->table WHERE $this->primaryKey= :value";
+        $parameters = [
+            'value' => $value
+        ];
+
+        $query = $this->query($query, $parameters);
+
+        return $query->fetchObject($this->className, $this->constructorArgs);
+    }
+
+    public function find($column, $value, $limit= null, $offet = null)
+    {
+        $query= "SELECT * FROM $this->table WHERE $column= :value";
+
+        if ($limit != null)
+        {
+            if ($offet != null)
+            {
+                $query .= " LIMIT $offet, $limit";
+            } else {
+                $query .= " LIMIT $limit";
+            }
+        }
+
+        $parameters= [
+            'value' => $value
+        ];
+        $query= $this->query($query, $parameters);
+
+        return $query->fetchAll(\PDO::FETCH_CLASS, $this->className, $this->constructorArgs);
+    }
+
+    public function findAll($limit= null, $offet = null)
+    {
+        $query = "SELECT * FROM $this->table";
+
+        if ($limit != null)
+        {
+            if ($offet != null)
+            {
+                $query .= " LIMIT $offet, $limit";
+            } else {
+                $query .= " LIMIT $limit";
+            }
+        }
+
+        $result= $this->query($query);
+        return $result->fetchAll(\PDO::FETCH_CLASS, $this->className, $this->constructorArgs);
+    }
+
+    function insert($fields)
+    {
+        $query = "INSERT INTO $this->table (";
+
+        foreach ($fields as $key => $value) {
+            $query .= '`' . $key . '`,';
+        }
+
+        $query = rtrim($query, ',');
+
+        $query .= ') VALUES (';
+
+        foreach ($fields as $key => $value) {
+            $query .= ':' . $key . ',';
+        }
+
+        $query = rtrim($query, ',');
+
+        $query .= ')';
+
+        $fields = $this->processDates($fields);
+
+        $this->query($query, $fields);
+
+        return $this->pdo->lastInsertId();
+    }
+
+    function update($fields)
+    {
+        $query= "UPDATE $this->table SET ";
+
+        foreach ($fields as $key => $item) {
+            $query.= "`$key` = :$key,";
+        }
+
+        $query= rtrim($query, ',');
+
+        $query.= " WHERE `$this->primaryKey` = :primaryKey";
+
+        $fields['primaryKey']= $fields['id'];
+
+        $fields = $this->processDates($fields);
+
+        $this->query($query, $fields);
+    }
+
+    function processDates($fields)
+    {
+        foreach ($fields as $key => $value) {
+            if ($value instanceof \DateTime) {
+                $fields[$key] = $value->format('Y-m-d');
+            }
+        }
+        return $fields;
+    }
+
+    function delete($id)
+    {
+        $parameters= [':id' => $id];
+        $this->query("DELETE FROM $this->table WHERE $this->primaryKey= :id", $parameters);
+    }
+
+    public function deleteWhere($column, $value)
+    {
+        $sql = "DELETE FROM $this->table WHERE $column = :value";
+
+        $parameters= ['value' => $value];
+
+        $this->query($sql, $parameters);
+    }
+
+    function save($record)
+    {
+        $entity= new $this->className(...$this->constructorArgs);
+
+        try {
+            if($record[$this->primaryKey] == '') {
+                $record[$this->primaryKey]= null;
+            }
+
+            $insertId= $this->insert($record);
+            $entity->{$this->primaryKey}= $insertId;
+        }
+        catch (\PDOException $e) {
+            $this->update($record);
+        }
+
+        foreach ($record as $key => $value) {
+            if(!empty($value))
+            {
+                $entity->$key= $value;
+            }
+        }
+
+        return $entity;
+    }
+}

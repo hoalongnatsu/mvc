@@ -48,6 +48,8 @@ class Core
 
     private function getUrl()
     {
+		// echo $_GET['url'];
+		// exit();
         if (isset($_GET['url']))
         {
             $url = rtrim($_GET['url'], '/');
